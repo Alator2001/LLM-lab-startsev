@@ -9,6 +9,7 @@ import json
 import os
 import threading
 import asyncio
+import httpx
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 from dotenv import load_dotenv
@@ -34,6 +35,16 @@ PRIORITY_EMOJIS = {
     'низкий': '🟢',
     'средний': '🟡',
     'высокий': '🔴'
+}
+
+# URL для API CoinGecko
+COINGECKO_API_URL = 'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,tether&vs_currencies=usd'
+
+# Словарь с названиями криптовалют для отображения
+CRYPTO_NAMES = {
+    'bitcoin': 'Bitcoin (BTC)',
+    'ethereum': 'Ethereum (ETH)',
+    'tether': 'Tether (USDT)'
 }
 
 
@@ -237,6 +248,34 @@ def format_task(task: Dict) -> str:
     return result
 
 
+async def get_crypto_prices() -> Optional[Dict]:
+    """
+    Получает актуальные курсы криптовалют через API CoinGecko.
+    
+    Returns:
+        Словарь с данными о курсах криптовалют или None в случае ошибки
+    """
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(COINGECKO_API_URL)
+            if response.status_code == 200:
+                data = response.json()
+                logger.info("Успешно получены курсы криптовалют")
+                return data
+            else:
+                logger.error(f"Ошибка API CoinGecko: статус {response.status_code}")
+                return None
+    except httpx.TimeoutException:
+        logger.error("Таймаут при запросе к API CoinGecko")
+        return None
+    except httpx.RequestError as e:
+        logger.error(f"Ошибка сети при запросе к API CoinGecko: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"Неожиданная ошибка при получении курсов: {e}")
+        return None
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Обработчик команды /start.
@@ -251,6 +290,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • Отмечать задачи как выполненные
 • Показывать список задач на сегодня
 • Отправлять напоминания о невыполненных задачах
+• Показывать актуальные курсы криптовалют 💰
 
 📝 Основные команды:
 /add <задача> - добавить новую задачу
@@ -259,6 +299,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 /list - показать все активные задачи
 /completed - показать выполненные задачи
 /done <ID> - отметить задачу как выполненную
+/crypto - показать курсы криптовалют
 /help - показать справку
 
 Начните работу, отправив команду /add <ваша задача>!
@@ -301,6 +342,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
    Отмечает задачу как выполненную
    Пример: /done 5
 
+/crypto
+   Показывает актуальные курсы криптовалют (Bitcoin, Ethereum, Tether)
+
 /help
    Показывает эту справку
 
@@ -309,6 +353,55 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     await update.message.reply_text(help_text)
     logger.info(f"Пользователь {update.effective_user.id} запросил справку")
+
+
+async def crypto_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Обработчик команды /crypto.
+    Показывает актуальные курсы топ-3 криптовалют.
+    """
+    user_id = update.effective_user.id
+    
+    # Отправляем сообщение о загрузке
+    loading_message = await update.message.reply_text("⏳ Загружаю курсы криптовалют...")
+    
+    # Получаем курсы криптовалют
+    crypto_data = await get_crypto_prices()
+    
+    # Проверяем, получены ли данные
+    if crypto_data is None:
+        await loading_message.edit_text(
+            "❌ Не удалось получить курсы криптовалют.\n\n"
+            "Возможные причины:\n"
+            "• Проблемы с интернет-соединением\n"
+            "• API CoinGecko временно недоступен\n\n"
+            "Попробуйте позже."
+        )
+        logger.warning(f"Пользователь {user_id} не смог получить курсы криптовалют")
+        return
+    
+    # Формируем сообщение с курсами
+    message = "💰 Актуальные курсы криптовалют:\n\n"
+    
+    # Проверяем наличие данных для каждой криптовалюты
+    for crypto_id, crypto_name in CRYPTO_NAMES.items():
+        if crypto_id in crypto_data and 'usd' in crypto_data[crypto_id]:
+            price = crypto_data[crypto_id]['usd']
+            # Форматируем цену
+            if price >= 1:
+                formatted_price = f"{price:,.2f}".replace(',', ' ')
+            else:
+                formatted_price = f"{price:.4f}"
+            message += f"{crypto_name}: {formatted_price} USD\n"
+        else:
+            logger.warning(f"Нет данных для {crypto_id}")
+            message += f"{crypto_name}: Данные недоступны\n"
+    
+    message += "\n📊 Данные предоставлены CoinGecko"
+    
+    # Отправляем сообщение с курсами
+    await loading_message.edit_text(message)
+    logger.info(f"Пользователь {user_id} запросил курсы криптовалют")
 
 
 async def add_task_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -702,6 +795,7 @@ def main():
     application.add_handler(CommandHandler("list", list_command))
     application.add_handler(CommandHandler("done", done_command))
     application.add_handler(CommandHandler("completed", completed_command))
+    application.add_handler(CommandHandler("crypto", crypto_command))
     
     # Регистрируем обработчик текстовых сообщений
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message))
