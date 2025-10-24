@@ -141,7 +141,7 @@ README.md — инструкция по запуску (включая уста�
 ![/lsit](./img/Telegram_ciLTJLYIIB.png)
 
 **Видео-демо:**  
-[Ссылка на Google Drive](https://drive.google.com/file/d/12lRxCtTfnu7Yr8Gg8f2SDlvW8WCp_XDF/view?usp=sharing)
+[Ссылка на Google Drive](https://drive.google.com/file/d/1YjCjE9oWMeqea6HQpAz0vsynfXm9CBkf/view?usp=sharing)
 
 ---
 
