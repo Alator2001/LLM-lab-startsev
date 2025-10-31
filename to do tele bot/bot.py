@@ -813,9 +813,38 @@ def main():
     # Запускаем поток проверки напоминаний
     check_reminders_periodically()
     
-    # Запускаем бота
-    logger.info("Бот запущен!")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    # Режим запуска: polling или webhook
+    use_webhook = os.getenv('USE_WEBHOOK', '0').strip() == '1'
+    if use_webhook:
+        webhook_host = os.getenv('WEBHOOK_HOST', '0.0.0.0').strip() or '0.0.0.0'
+        try:
+            webhook_port = int(os.getenv('WEBHOOK_PORT', '8080'))
+        except ValueError:
+            webhook_port = 8080
+        webhook_path = os.getenv('WEBHOOK_PATH', '/webhook').strip() or '/webhook'
+        public_webhook_url = os.getenv('PUBLIC_WEBHOOK_URL')
+
+        if not public_webhook_url:
+            logger.error("PUBLIC_WEBHOOK_URL не задан. Укажите публичный https URL (например, из ngrok)")
+            return
+
+        full_webhook_url = public_webhook_url.rstrip('/') + webhook_path
+
+        logger.info(
+            f"Старт в режиме webhook: listen={webhook_host}:{webhook_port}, path={webhook_path}, url={full_webhook_url}"
+        )
+        logger.info("Бот запущен!")
+        application.run_webhook(
+            listen=webhook_host,
+            port=webhook_port,
+            url_path=webhook_path,
+            webhook_url=full_webhook_url,
+            allowed_updates=Update.ALL_TYPES,
+        )
+    else:
+        # Запуск в режиме polling (по умолчанию)
+        logger.info("Бот запущен (polling)!")
+        application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
 if __name__ == '__main__':
